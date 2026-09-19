@@ -1,3 +1,178 @@
+<style>
+.profile-chat-avatar{display:flex;align-items:center;gap:7px;min-width:0}
+.profile-chat-avatar .av{width:32px;height:32px;font-size:17px}
+.friend-chat-author{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.friend-chat-author .av{width:34px;height:34px;font-size:18px;flex:none}
+.friend-chat-author-name{min-width:0;display:block}
+</style>
+<script>
+(function(){
+  'use strict';
+  function boot(){
+    if(window.__profileFrameFixInstalled)return;
+    window.__profileFrameFixInstalled=true;
+    var esc0=window.esc||function(v){return String(v==null?'':v).replace(/[<>&"]/g,'');};
+    function ref(v){
+      if(typeof v==='string'&&/^cf:[A-Za-z0-9_-]{1,36}$/.test(v))return v;
+      var n=Number(v);return Number.isInteger(n)&&n>=0?n:0;
+    }
+    function av(p,size){
+      p=p||{};
+      try{return window.avHTML(Number.isInteger(p.av)?p.av:(Number.isInteger(p.a)?p.a:0),ref(p.fr!=null?p.fr:p.f),size||'sm',Number.isInteger(p.fx)?p.fx:0);}
+      catch(e){return '<div class="av '+(size||'sm')+'">😎</div>';}
+    }
+    function nm(p){
+      p=p||{};
+      try{return window.nameHTML(String(p.n||'بازیکن'),p.v===1||Number(p.vipUntil)>Date.now(),typeof p.nc==='string'?p.nc:'');}
+      catch(e){return esc0(p.n||'بازیکن');}
+    }
+    function repaint(){
+      try{if(typeof window.renderTopbar==='function')window.renderTopbar();}catch(e){}
+      try{if(typeof window.renderProfile==='function')window.renderProfile();}catch(e){}
+      try{if(typeof window.renderWorldChat==='function')window.renderWorldChat();}catch(e){}
+      try{if(typeof window.renderFChatMsgs==='function')window.renderFChatMsgs();}catch(e){}
+      try{if(typeof window.renderGuildChat==='function')window.renderGuildChat();}catch(e){}
+      try{if(typeof window.renderGuildMembers==='function')window.renderGuildMembers();}catch(e){}
+    }
+
+    /* چت جهانی: قاب، افکت و رنگ نام در تاریخچهٔ محلی هم حفظ می‌شود. */
+    if(typeof window.addWorldMessage==='function'){
+      window.addWorldMessage=function(m){
+        if(!m||!m.id||typeof m.txt!=='string'||m.txt.length>200||worldSeen[m.id])return;
+        worldSeen[m.id]=1;
+        worldMsgs.push({id:String(m.id),from:tid(m.from||m.uid||''),n:String(m.n||'بازیکن').slice(0,14),
+          av:Number.isInteger(m.av)?m.av:(Number.isInteger(m.a)?m.a:0),fr:ref(m.fr!=null?m.fr:m.f),
+          fx:Number.isInteger(m.fx)?m.fx:0,nc:typeof m.nc==='string'?m.nc:'',v:m.v===1?1:0,
+          vipUntil:Number(m.vipUntil)||0,txt:m.txt.slice(0,200),t:Number(m.t)||Date.now()});
+        worldMsgs.sort(function(a,b){return a.t-b.t;});
+        saveWorldLocal();renderWorldChat();
+      };
+    }
+    window.renderWorldChat=function(){
+      var box=document.getElementById('worldMsgs');if(!box)return;
+      var near=box.scrollHeight-box.scrollTop-box.clientHeight<120;
+      box.innerHTML=worldMsgs.map(function(m){
+        var mine=m.from===tid(P.id);
+        var del=isMsgAdmin(P.id)?'<button class="btn-red" style="padding:4px 7px;font-size:10px;margin-top:4px" data-mid="'+esc0(m.id)+'" onclick="deleteWorldMessage(this.dataset.mid)">🗑 حذف برای همه</button>':'';
+        return '<div class="gm'+(mine?' me':'')+'">'+av(m,'sm')+'<div class="gb"><div class="gn">'+nm(m)+'</div><div class="gt">'+esc0(m.txt)+'</div><div class="gtm">'+clockTime(m.t)+'</div>'+del+'</div></div>';
+      }).join('');
+      if(near)box.scrollTop=box.scrollHeight;
+    };
+
+    /* چت دوستانهٔ جدید و قدیمی هر دو یک آواتار واقعی نشان می‌دهند. */
+    window.renderFChatMsgs=function(){
+      var box=document.getElementById('fchat-msgs');if(!box)return;
+      var inp=document.getElementById('fchat-input'),prev=inp?inp.value:'',focused=inp&&document.activeElement===inp;
+      var list=Array.isArray(fchatMsgs)?fchatMsgs.slice().sort(function(a,b){return (Number(a.t)||0)-(Number(b.t)||0);}):[];
+      box.classList.add('friend-chat-stack');
+      box.innerHTML=list.map(function(m){
+        var body=m.type==='image'&&/^data:image\//i.test(String(m.img||''))?
+          '<img class="friend-chat-photo" src="'+String(m.img)+'" alt="عکس" loading="lazy"><div class="friend-chat-caption">📷 عکس</div>':
+          '<div class="friend-chat-text">'+esc0(m.txt||'')+'</div>';
+        return '<div class="friend-chat-item"><div class="friend-chat-bubble"><div class="friend-chat-author">'+av(m,'sm')+'<span class="friend-chat-author-name">'+nm(m)+'</span></div>'+body+'<div class="friend-chat-time">'+clockTime(m.t)+'</div></div></div>';
+      }).join('');
+      box.scrollTop=box.scrollHeight;
+      if(inp&&prev){inp.value=prev;if(focused)try{inp.focus({preventScroll:true});}catch(e){try{inp.focus();}catch(_){}}}
+    };
+
+    /* چت داخل بازی: پیام تازه و پیام دریافتی، قاب و افکت فرستنده را نگه می‌دارند. */
+    window.renderGameChat=function(){
+      var box=document.getElementById('gameChatMsgs');if(!box)return;
+      box.innerHTML=(gameChatMsgs||[]).map(function(m){
+        return '<div class="profile-chat-avatar" style="justify-content:'+(m.me?'flex-end':'flex-start')+';margin:4px 0"><span>'+av(m,'sm')+'</span><span style="background:'+(m.me?'rgba(53,132,228,.3)':'rgba(255,255,255,.12)')+';border-radius:10px;padding:4px 8px;font-size:12px;display:inline-block;max-width:75%;word-break:break-word;user-select:text">'+nm(m)+': '+esc0(m.txt)+'</span></div>';
+      }).join('');
+      box.scrollTop=box.scrollHeight;
+    };
+    window.sendGameChat=function(){
+      var inp=document.getElementById('gameChatInput');if(!inp)return;
+      var txt=inp.value.trim();if(!txt||isLocal||botActive)return;
+      inp.value='';
+      var msg={n:P.name,av:effAv(),fr:effFr(),fx:effFx(),nc:P.nameColor||'',v:isVipMe()?1:0,txt:txt,me:true};
+      gameChatMsgs.push(msg);renderGameChat();beep(760,.05);
+      if(oppConnected)sendToOpponent({type:'chat',txt:txt,n:P.name,av:effAv(),fr:effFr(),fx:effFx(),nc:P.nameColor||'',v:isVipMe()?1:0,mid:mySid+'-'+Date.now().toString(36)});
+    };
+    if(typeof window.handleData==='function'){
+      var oldHandleData=window.handleData;
+      window.handleData=function(m){
+        if(m&&m.type==='chat'){
+          if(m.mid){if(remoteGameMsgSeen&&remoteGameMsgSeen.has(m.mid))return; if(remoteGameMsgSeen)remoteGameMsgSeen.add(m.mid);}
+          gameChatMsgs.push({n:m.n||'حریف',av:Number.isInteger(m.av)?m.av:(Number.isInteger(m.a)?m.a:0),fr:ref(m.fr!=null?m.fr:m.f),fx:Number.isInteger(m.fx)?m.fx:0,nc:m.nc||'',v:m.v===1?1:0,txt:String(m.txt||'').slice(0,120),me:false});
+          renderGameChat();beep(700,.05);
+          if(document.getElementById('gameChatPanel')&&document.getElementById('gameChatPanel').style.display==='none')toast('💬 پیام جدید از حریف!','blue');
+          return;
+        }
+        return oldHandleData.apply(this,arguments);
+      };
+    }
+
+    /* حساب ذخیره‌شده: در ورود دوباره، نام کاربری خودکار پر می‌شود. */
+    if(typeof window.openAccountAuth==='function'){
+      var oldOpen=window.openAccountAuth;
+      window.openAccountAuth=function(mode){
+        oldOpen.apply(this,arguments);
+        if((mode||'register')!=='login')return;
+        try{
+          var all=accountStore(),keys=Object.keys(all).filter(function(k){return /^[a-z]{3,20}$/.test(k);});
+          var u=document.getElementById('accountUser');
+          if(u&&!u.value&&keys.length===1)u.value=String(all[keys[0]].u||keys[0]).replace(/[^A-Za-z]/g,'').slice(0,20);
+        }catch(e){}
+      };
+    }
+    if(typeof window.loginAccount==='function'){
+      var oldLogin=window.loginAccount;
+      window.loginAccount=async function(){
+        var result=await oldLogin.apply(this,arguments);
+        try{if(P&&(!P.name||P.name==='بازیکن')&&P.accountUser){P.name=P.accountUser.slice(0,14);saveP();publishMyPresence(true);}}catch(e){}
+        return result;
+      };
+    }
+    if(typeof window.registerAccount==='function'){
+      var oldRegister=window.registerAccount;
+      window.registerAccount=async function(){
+        var result=await oldRegister.apply(this,arguments);
+        try{if(P&&P.accountUser&&(!P.name||P.name==='بازیکن')){P.name=P.accountUser.slice(0,14);saveP();publishMyPresence(true);}}catch(e){}
+        return result;
+      };
+    }
+
+    /* قاب سفارشی فقط با شناسهٔ دقیق مدیر قابل مدیریت است. */
+    var exactAdmin=function(){return !!(P&&String(P.id||'').toUpperCase()==='#D8RDNE');};
+    ['openVipFrameCreator','vipDeleteFrame','vipDeleteFrameNow'].forEach(function(key){
+      if(typeof window[key]!=='function')return;
+      var old=window[key];
+      window[key]=function(){if(!exactAdmin()){toast('⛔ فقط #D8RDNE اجازهٔ مدیریت قاب VIP را دارد.','red',1);return;}return old.apply(this,arguments);};
+    });
+
+    /* جدول برترین‌ها دادهٔ خام قاب را از پیام MQTT نگه می‌دارد و بعد از رندر اصلاح می‌کند. */
+    var leaders={},leaderClient=null;
+    function bindLeaders(){
+      if(typeof client==='undefined'||!client||typeof client.on!=='function')return;
+      if(leaderClient===client)return;
+      leaderClient=client;
+      client.on('message',function(topic,buf){
+        if(typeof topic!=='string'||topic.indexOf('doz/u/')!==0)return;
+        try{var m=JSON.parse(buf.toString()),id=tid(m.id);if(id&&id.length===6)leaders[id]=m;}catch(e){}
+      });
+      try{if(client.connected)client.subscribe('doz/u/+',{qos:1});}catch(e){}
+    }
+    function paintLeaderFrames(){
+      bindLeaders();
+      try{if(P&&P.id)leaders[tid(P.id)]={id:P.id,n:P.name,av:effAv(),fr:effFr(),fx:effFx(),nc:P.nameColor||'',v:isVipMe()?1:0};}catch(e){}
+      document.querySelectorAll('#scr-leaders .leader-row,#scr-leaders .leader-podium').forEach(function(row){
+        var onclick=row.getAttribute('onclick')||'',match=onclick.match(/openLeaderUser\\('([A-Za-z0-9]+)'\\)/),id=match?match[1].toUpperCase():'';
+        if(!id){var txt=row.querySelector('.leader-row-id');var found=txt&&String(txt.textContent).match(/#?([A-Z0-9]{6})/);id=found?found[1]:'';}
+        var p=leaders[id]||onlineMap[id]||presMap[id];if(!p)return;
+        var old=row.querySelector('.av');
+        if(old){var holder=document.createElement('div');holder.innerHTML=av(p,old.className.indexOf('big')>=0?'big':'sm');var next=holder.firstElementChild;if(next)old.replaceWith(next);}
+      });
+    }
+    setInterval(paintLeaderFrames,900);
+    paintLeaderFrames();
+    repaint();
+  }
+  if(document.readyState==='complete')setTimeout(boot,0);else window.addEventListener('load',boot,{once:true});
+})();
+</script>
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
@@ -6527,6 +6702,300 @@ body.menu-lite{background:linear-gradient(145deg,#14162b,#202a52)!important}
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
   setTimeout(installUI,120);setTimeout(installUI,700);
+})();
+</script>
+<style id="vip-custom-frames-style">
+.vip-frame-tab{background:linear-gradient(135deg,rgba(255,105,180,.22),rgba(124,92,255,.22))!important;border-color:rgba(255,105,180,.55)!important}
+.vip-frame-admin{width:100%;margin-top:10px;padding:13px;border:1px solid rgba(255,105,180,.38);border-radius:18px;background:linear-gradient(145deg,rgba(255,105,180,.14),rgba(124,92,255,.12));text-align:right}
+.vip-frame-admin b{display:block;font-size:14px}.vip-frame-admin small{display:block;color:var(--mut);font-size:10px;line-height:1.8;margin-top:4px}
+.vip-frame-admin button{width:100%;margin-top:9px;font-size:12px;padding:10px}
+.vip-frame-empty{width:100%;padding:24px 13px;margin-top:10px;border:1px dashed rgba(255,105,180,.38);border-radius:17px;text-align:center;color:var(--mut);font-size:12px;line-height:2}
+.vip-frame-card{position:relative;overflow:hidden!important;border-color:rgba(255,105,180,.55)!important;background:linear-gradient(145deg,rgba(255,85,170,.15),rgba(105,75,255,.13))!important;box-shadow:0 0 22px rgba(255,80,180,.14),inset 0 0 20px rgba(120,80,255,.08)!important}
+.vip-frame-card .vip-frame-preview{min-height:112px;display:flex;align-items:center;justify-content:center;margin:5px 0 3px}
+.vip-frame-card .vip-frame-preview .av.big{width:86px;height:86px;font-size:45px}
+.vip-frame-card b{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vip-frame-card button{width:100%;margin-top:7px;font-size:11px;padding:9px}
+.vip-frame-card .vip-frame-delete{background:linear-gradient(135deg,#e01b24,#a51d2d);font-size:10px;padding:7px}
+.vip-custom-frame-host{position:relative!important;isolation:isolate}
+.vip-custom-frame-overlay{position:absolute;inset:-8%;z-index:4;pointer-events:none;background-repeat:no-repeat;background-position:center;background-size:100% 100%;transform:translate(var(--vip-frame-x,0%),var(--vip-frame-y,0%)) scale(var(--vip-frame-scale,1));transform-origin:center;}
+.vip-frame-editor-note{font-size:10px;color:var(--mut);line-height:1.9;margin-top:6px;text-align:right}
+.vip-frame-editor-preview{height:188px;margin:10px auto 4px;display:flex;align-items:center;justify-content:center;border-radius:18px;background:radial-gradient(circle,rgba(255,105,180,.18),rgba(0,0,0,.18));border:1px solid rgba(255,255,255,.14)}
+.vip-frame-editor-preview .av.big{width:122px;height:122px;font-size:65px}
+.vip-frame-editor-control{display:grid;grid-template-columns:74px 1fr 45px;gap:7px;align-items:center;margin-top:9px;text-align:right;font-size:11px}
+.vip-frame-editor-control input[type=range]{width:100%;accent-color:#ff6ec7}
+.vip-frame-editor-value{color:#ffd43b;text-align:left;font-size:10px}
+.vip-frame-editor-actions{display:flex;gap:8px;margin-top:12px}.vip-frame-editor-actions button{flex:1;padding:11px;font-size:12px}
+.vip-frame-editor-file{width:100%;padding:11px;font-size:12px;text-align:center;background:rgba(255,255,255,.08);border:1px dashed rgba(255,105,180,.5);box-shadow:none}
+@media(max-width:380px){.vip-frame-editor-control{grid-template-columns:64px 1fr 40px}.vip-frame-editor-preview{height:170px}}
+.shop-tabs-pro.vip-frame-tabs{grid-template-columns:repeat(5,minmax(0,1fr))!important}
+@media(max-width:370px){.shop-tabs-pro.vip-frame-tabs{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+</style>
+<script id="vip-custom-frames-v1">
+(function(){
+  'use strict';
+
+  var TOPIC='doz/vip-frames/catalog';
+  var STORAGE_KEY='dozVipFrameCatalogV1';
+  var MAX_FRAMES=8;
+  var MAX_IMAGE_CHARS=120000;
+  var frames=[];
+  var boundClient=null;
+  var lastPublished=0;
+  var baseAvatarHTML=window.avHTML;
+  var baseEffFr=window.effFr;
+  var baseRenderShop=window.renderShop;
+
+  function clamp(n,min,max){return Math.max(min,Math.min(max,Number(n)||0));}
+  function validImage(s){return typeof s==='string'&&/^data:image\/(?:png|jpe?g|webp|gif);base64,/i.test(s)&&s.length<=MAX_IMAGE_CHARS;}
+  function safeFrame(x){
+    if(!x||!validImage(x.img))return null;
+    var id=String(x.id||'').replace(/[^A-Za-z0-9_-]/g,'').slice(0,36);
+    if(!id)return null;
+    return {
+      id:id,
+      name:String(x.name||'قاب VIP').replace(/[<>]/g,'').slice(0,32)||'قاب VIP',
+      img:x.img,
+      scale:clamp(x.scale,.65,2.2)||1,
+      x:clamp(x.x,-28,28),
+      y:clamp(x.y,-28,28),
+      by:'#D8RDNE',
+      createdAt:Number(x.createdAt)||Date.now()
+    };
+  }
+  function findFrame(id){id=String(id||'');return frames.find(function(f){return f.id===id;})||null;}
+  function loadFrames(){
+    try{
+      var raw=JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');
+      if(Array.isArray(raw))frames=raw.map(safeFrame).filter(Boolean).slice(0,MAX_FRAMES);
+    }catch(e){frames=[];}
+  }
+  function saveFrames(){
+    try{localStorage.setItem(STORAGE_KEY,JSON.stringify(frames));}catch(e){}
+  }
+  function admin(){
+    try{return !!(P&&(isVipId(P.id)||isMsgAdmin(P.id)));}catch(e){return false;}
+  }
+  function currentId(){
+    try{
+      if(!P||!isVipMe())return '';
+      var id=String(P.vipFrameId||'');
+      return findFrame(id)?id:'';
+    }catch(e){return '';}
+  }
+  function ownedList(){
+    if(!P)return [];
+    if(!Array.isArray(P.ownedVipFrames))P.ownedVipFrames=[];
+    P.ownedVipFrames=P.ownedVipFrames.map(String).filter(function(id){return !!findFrame(id);});
+    return P.ownedVipFrames;
+  }
+  function frameStyle(f){
+    return '--vip-frame-scale:'+clamp(f.scale,.65,2.2).toFixed(3)+';--vip-frame-x:'+clamp(f.x,-28,28).toFixed(2)+'%;--vip-frame-y:'+clamp(f.y,-28,28).toFixed(2)+'%;background-image:url('+f.img+');';
+  }
+  function overlay(f){
+    return '<span class="vip-custom-frame-overlay" aria-hidden="true" style="'+frameStyle(f)+'"></span>';
+  }
+  function frameAvatar(a,f,sz,fx){
+    var raw=baseAvatarHTML(a,0,sz,fx);
+    return raw.replace(/<\/div>\s*$/,'<span class="vip-custom-frame-overlay" aria-hidden="true" style="'+frameStyle(f)+'"></span></div>').replace('<div class="av ','<div class="av vip-custom-frame-host ');
+  }
+  function currentPreview(){
+    var id=currentId(),f=findFrame(id);
+    return f?frameAvatar(effAv(),f,'big',0):baseAvatarHTML(effAv(),0,'big',0);
+  }
+
+  /* انتخاب قاب سفارشی از همین‌جا به effFr اضافه می‌شود؛ قاب‌های قدیمی دست‌نخورده می‌مانند. */
+  window.effFr=function(){
+    var id=currentId();
+    return id?'cf:'+id:baseEffFr();
+  };
+  window.avHTML=function(a,f,sz,fx){
+    var raw=baseAvatarHTML(a,f,sz,fx);
+    var id=(typeof f==='string'&&f.indexOf('cf:')===0)?String(f.slice(3)):'';
+    var fr=findFrame(id);
+    if(!fr)return raw;
+    return raw.replace(/<\/div>\s*$/,'<span class="vip-custom-frame-overlay" aria-hidden="true" style="'+frameStyle(fr)+'"></span></div>').replace('<div class="av ','<div class="av vip-custom-frame-host ');
+  };
+
+  function catalogPayload(){
+    return {type:'vip-frame-catalog',by:'#D8RDNE',version:Date.now(),frames:frames};
+  }
+  function applyCatalog(m){
+    if(!m||m.type!=='vip-frame-catalog'||!isMsgAdmin(m.by)||!Array.isArray(m.frames))return;
+    var next=m.frames.map(safeFrame).filter(Boolean).slice(0,MAX_FRAMES);
+    if(Number(m.version||0)<lastPublished)return;
+    frames=next;lastPublished=Number(m.version)||Date.now();saveFrames();
+    if(typeof renderShop==='function'&&typeof shopTab!=='undefined'&&shopTab===4)renderShop();
+    try{renderTopbar();renderProfile();}catch(e){}
+  }
+  function publishCatalog(){
+    if(!admin()||!client||!client.connected)return false;
+    var payload=catalogPayload(),data=JSON.stringify(Object.assign({sid:mySid},payload));
+    lastPublished=payload.version;saveFrames();
+    try{client.publish(TOPIC,data,{qos:1,retain:true});}catch(e){}
+    /* همان الگوی انتشار سراسری قبلی: قاب روی هرکدام از بروکرهای بازی هم ثبت می‌شود. */
+    try{
+      if(typeof mqtt==='undefined'||!Array.isArray(BROKERS))return true;
+      BROKERS.forEach(function(url){
+        try{
+          var c=mqtt.connect(url,{clientId:'dozvf'+Math.random().toString(36).slice(2,12),reconnectPeriod:0,connectTimeout:4500,clean:true,keepalive:10});
+          var done=false,finish=function(){if(done)return;done=true;try{c.end(true);}catch(e){}};
+          c.on('connect',function(){try{c.publish(TOPIC,data,{qos:1,retain:true},finish);}catch(e){finish();}});
+          c.on('error',finish);c.on('close',finish);setTimeout(finish,5200);
+        }catch(e){}
+      });
+    }catch(e){}
+    return true;
+  }
+  function subscribe(c){
+    try{if(c&&c.connected)c.subscribe(TOPIC,{qos:1});}catch(e){}
+  }
+  function bind(){
+    try{
+      if(!client||typeof client.on!=='function')return;
+      if(boundClient===client){subscribe(client);return;}
+      boundClient=client;
+      client.on('message',function(topic,buf){
+        if(topic!==TOPIC)return;
+        try{applyCatalog(JSON.parse(buf.toString()));}catch(e){}
+      });
+      client.on('connect',function(){subscribe(client);});
+      subscribe(client);
+    }catch(e){}
+  }
+
+  function tabButton(){
+    var tabs=document.querySelector('.shop-tabs-pro');
+    if(!tabs)return;
+    tabs.classList.add('vip-frame-tabs');
+    if(document.getElementById('tab4'))return;
+    var b=document.createElement('button');
+    b.id='tab4';b.className='tab vip-frame-tab';b.type='button';b.textContent='👑 قاب VIP';
+    b.onclick=function(){shopTab=4;renderShop();};
+    tabs.appendChild(b);
+  }
+  function paintTabs(){
+    [0,1,2,3,4].forEach(function(i){
+      var el=document.getElementById('tab'+i);if(el)el.classList.toggle('on',shopTab===i);
+    });
+  }
+  function renderCustomShop(){
+    tabButton();paintTabs();
+    var grid=document.getElementById('shopGrid');if(!grid)return;
+    var h='';
+    if(admin()){
+      h+='<div class="vip-frame-admin"><b>🛠 مدیریت قاب‌های VIP</b><small>فقط شناسه #D8RDNE می‌تواند قاب جدید اضافه یا حذف کند. قاب اضافه‌شده برای همه کاربران این فروشگاه نمایش داده می‌شود.</small><button class="btn-gold" onclick="openVipFrameCreator()">➕ افزودن قاب از گالری</button></div>';
+    }else{
+      h+='<div class="vip-frame-admin"><b>👑 دور پروفایل‌های VIP</b><small>قاب‌هایی که مدیر اضافه می‌کند اینجا قرار می‌گیرند. دیدن قاب برای همه آزاد است، اما استفاده و دریافت آن فقط با VIP ممکن است.</small></div>';
+    }
+    if(!frames.length){
+      h+='<div class="vip-frame-empty">هنوز قاب VIP اضافه نشده است.<br>'+(admin()?'از دکمهٔ بالا یک تصویر از گالری انتخاب کن.':'به‌زودی قاب‌های اختصاصی اینجا قرار می‌گیرند.')+'</div>';
+    }else{
+      h+='<div class="shop-grid" style="grid-column:1/-1;margin-top:10px">';
+      h+=frames.map(function(f){
+        var locked=!isVipMe(),owned=ownedList().indexOf(f.id)>=0,selected=!locked&&currentId()===f.id;
+        var btn=locked?'<button class="btn-gray" disabled>👑 فقط برای VIP</button><button class="btn-gold" onclick="vipPurchaseModal()">خرید VIP</button>':selected?'<button class="btn-gold" disabled>✅ فعال</button>':'<button class="btn-green" onclick="vipBuyFrame(\''+f.id+'\')">'+(owned?'انتخاب':'🎁 دریافت برای VIP')+'</button>';
+        var del=admin()?'<button class="vip-frame-delete" onclick="vipDeleteFrame(\''+f.id+'\')">🗑 حذف قاب</button>':'';
+        return '<div class="sitem vip-frame-card"><div class="tier tbvip">👑 VIP سفارشی</div><div class="vip-frame-preview">'+frameAvatar(effAv(),f,'big',0)+'</div><b title="'+esc(f.name)+'">'+esc(f.name)+'</b>'+btn+del+'</div>';
+      }).join('');
+      h+='</div>';
+    }
+    grid.innerHTML=h;
+    var sh=document.getElementById('sh-coins');if(sh&&P)sh.innerText='🪙 '+P.coins.toLocaleString('en');
+  }
+  window.renderShop=function(){
+    tabButton();
+    if(typeof shopTab!=='undefined'&&shopTab===4)return renderCustomShop();
+    paintTabs();
+    return baseRenderShop();
+  };
+
+  window.vipBuyFrame=function(id){
+    var f=findFrame(id);if(!f)return toast('این قاب دیگر موجود نیست ❌','red',1);
+    if(!isVipMe())return toast('👑 برای استفاده از این قاب باید VIP داشته باشی.','red',1);
+    var list=ownedList();if(list.indexOf(f.id)<0)list.push(f.id);
+    P.vipFrameId=f.id;saveP();
+    try{publishMyPresence(true);}catch(e){}
+    renderTopbar();renderProfile();renderShop();
+    toast('✅ قاب «'+f.name+'» فعال شد','blue',1);
+  };
+  window.vipDeleteFrame=function(id){
+    if(!admin())return;
+    var f=findFrame(id);if(!f)return;
+    openModal('<div style="font-size:48px">🗑️</div><h3 style="margin:7px 0">حذف قاب VIP؟</h3><p class="mut" style="line-height:2">قاب «'+esc(f.name)+'» از فروشگاه همه کاربران حذف می‌شود.</p><div class="row"><button class="btn-red" onclick="vipDeleteFrameNow(\''+f.id+'\')">حذف برای همه</button><button class="btn-gray" onclick="closeModal()">لغو</button></div>');
+  };
+  window.vipDeleteFrameNow=function(id){
+    if(!admin())return;
+    frames=frames.filter(function(f){return f.id!==String(id);});
+    if(P&&P.vipFrameId===String(id))P.vipFrameId='';
+    if(P&&Array.isArray(P.ownedVipFrames))P.ownedVipFrames=P.ownedVipFrames.filter(function(x){return x!==String(id);});
+    saveP();saveFrames();publishCatalog();closeModal();renderShop();renderTopbar();renderProfile();toast('قاب برای همه حذف شد ✅','blue',1);
+  };
+
+  function compressImage(file,done){
+    var reader=new FileReader();
+    reader.onerror=function(){done(null);};
+    reader.onload=function(){
+      var img=new Image();
+      img.onerror=function(){done(null);};
+      img.onload=function(){
+        var side=Math.min(640,Math.max(260,img.width,img.height)),scale=Math.min(1,side/Math.max(img.width,img.height));
+        var w=Math.max(1,Math.round(img.width*scale)),h=Math.max(1,Math.round(img.height*scale)),canvas=document.createElement('canvas');
+        canvas.width=w;canvas.height=h;var ctx=canvas.getContext('2d');ctx.clearRect(0,0,w,h);ctx.drawImage(img,0,0,w,h);
+        var data='';
+        for(var q=.88;q>=.48;q-=.08){
+          data=canvas.toDataURL('image/webp',q);
+          if(data.length<=MAX_IMAGE_CHARS)break;
+        }
+        if(data.length>MAX_IMAGE_CHARS){
+          var ratio=.78;canvas.width=Math.max(220,Math.round(w*ratio));canvas.height=Math.max(220,Math.round(h*ratio));ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0,canvas.width,canvas.height);data=canvas.toDataURL('image/webp',.55);
+        }
+        done(validImage(data)?data:null);
+      };
+      img.src=reader.result;
+    };
+    reader.readAsDataURL(file);
+  }
+  function editorPreview(state){
+    var box=document.getElementById('vipFrameEditorPreview');if(!box||!state.img)return;
+    var f={img:state.img,scale:state.scale,x:state.x,y:state.y};
+    box.innerHTML=frameAvatar(effAv(),f,'big',0);
+    var sc=document.getElementById('vipFrameScaleValue'),x=document.getElementById('vipFrameXValue'),y=document.getElementById('vipFrameYValue');
+    if(sc)sc.textContent=state.scale.toFixed(2)+'×';if(x)x.textContent=Math.round(state.x)+'%';if(y)y.textContent=Math.round(state.y)+'%';
+  }
+  window.openVipFrameCreator=function(){
+    if(!admin())return toast('⛔ فقط #D8RDNE می‌تواند قاب اضافه کند.','red',1);
+    openModal('<div style="font-size:46px">👑</div><h3 style="margin:6px 0">افزودن دور پروفایل VIP</h3><p class="vip-frame-editor-note">تصویر قاب را از گالری انتخاب کن. برای نتیجهٔ بهتر، تصویر PNG با پس‌زمینهٔ شفاف انتخاب شود.</p><input id="vipFrameName" maxlength="32" placeholder="نام قاب (اختیاری)" style="width:100%;margin-top:9px;text-align:right"><label class="vip-frame-editor-file" style="display:block;margin-top:9px">🖼️ انتخاب تصویر از گالری<input id="vipFrameFile" class="photo-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label><div id="vipFrameEditorPreview" class="vip-frame-editor-preview"><span class="mut">هنوز تصویری انتخاب نشده</span></div><div id="vipFrameEditorControls" style="display:none"><div class="vip-frame-editor-control"><span>بزرگ/کوچک</span><input id="vipFrameScale" type="range" min=".65" max="2.2" step=".01" value="1"><span id="vipFrameScaleValue" class="vip-frame-editor-value">1.00×</span></div><div class="vip-frame-editor-control"><span>چپ / راست</span><input id="vipFrameX" type="range" min="-28" max="28" step="1" value="0"><span id="vipFrameXValue" class="vip-frame-editor-value">۰%</span></div><div class="vip-frame-editor-control"><span>بالا / پایین</span><input id="vipFrameY" type="range" min="-28" max="28" step="1" value="0"><span id="vipFrameYValue" class="vip-frame-editor-value">۰%</span></div><p class="vip-frame-editor-note">قاب را روی پیش‌نمایش میزان کن، سپس «افزودن برای همه» را بزن.</p></div><div class="vip-frame-editor-actions"><button class="btn-gray" onclick="closeModal()">لغو</button><button id="vipFrameCommit" class="btn-gold" disabled>افزودن برای همه</button></div>');
+    var state={img:'',scale:1,x:0,y:0};
+    var file=document.getElementById('vipFrameFile'),controls=document.getElementById('vipFrameEditorControls'),commit=document.getElementById('vipFrameCommit');
+    function update(){editorPreview(state);}
+    ['vipFrameScale','vipFrameX','vipFrameY'].forEach(function(id){
+      var el=document.getElementById(id);if(!el)return;
+      el.oninput=function(){if(id==='vipFrameScale')state.scale=Number(this.value);if(id==='vipFrameX')state.x=Number(this.value);if(id==='vipFrameY')state.y=Number(this.value);update();};
+    });
+    if(file)file.onchange=function(){
+      var selected=this.files&&this.files[0];if(!selected)return;
+      if(selected.size>8*1024*1024){this.value='';return toast('عکس خیلی بزرگ است؛ عکس کوچک‌تری انتخاب کن.','red',1);}
+      controls.style.display='none';commit.disabled=true;toast('در حال آماده‌سازی تصویر...','blue',1);
+      compressImage(selected,function(data){
+        if(!data){return toast('این تصویر آماده نشد؛ PNG یا JPG دیگری امتحان کن.','red',1);}
+        state.img=data;state.scale=1;state.x=0;state.y=0;controls.style.display='block';commit.disabled=false;update();
+      });
+    };
+    if(commit)commit.onclick=function(){
+      if(!state.img||!admin())return;
+      var name=(document.getElementById('vipFrameName').value||'').trim()||('قاب VIP '+(frames.length+1));
+      var f=safeFrame({id:'vf_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7),name:name,img:state.img,scale:state.scale,x:state.x,y:state.y,createdAt:Date.now()});
+      if(!f)return toast('قاب معتبر نیست ❌','red',1);
+      frames.unshift(f);if(frames.length>MAX_FRAMES)frames=frames.slice(0,MAX_FRAMES);
+      saveFrames();publishCatalog();closeModal();shopTab=4;renderShop();toast('قاب برای همه اضافه شد ✅','blue',1);
+    };
+  };
+
+  loadFrames();
+  tabButton();
+  bind();
+  setInterval(function(){tabButton();bind();},1200);
+  setTimeout(function(){try{if(typeof renderShop==='function')renderShop();}catch(e){}},80);
 })();
 </script>
 <style id="v30-real-leaderboard-style">
